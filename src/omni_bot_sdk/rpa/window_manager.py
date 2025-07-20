@@ -808,7 +808,14 @@ class WindowManager:
             for window in filter_windows:
                 if window.title == "通过朋友验证":
                     # 这个位置关系不能确定，是浮动的，可以在屏幕的任意位置，但是肯定是可见的，而且明显不会很小
+                    # 也有可能是一个很小的微信窗口，title： 微信，真的是吵了小龙的吗了
                     return window
+            for window in filter_windows:
+                if window.title == "微信":
+                    # <Win32Window left="22", top="17", width="450", height="356", title="微信">
+                    # 第一轮没有找到，第二轮直接用微信标签找，但是一定要判大小，否则返回主窗口就尴尬了
+                    if window.width < 600 and window.height < 500:
+                        return window
         elif windowType == WindowTypeEnum.InviteMemberWindow:
             for window in filter_windows:
                 if window.title == "微信添加群成员":
