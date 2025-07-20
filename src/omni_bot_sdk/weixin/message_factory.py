@@ -983,7 +983,7 @@ class SystemMessageFactory(MessageFactory):
         contact: dict,
         room: dict,
     ):
-        msg = SystemMessage(  # Use SystemMessage for clarity
+        msg = TextMessage(
             local_id=message[0],
             server_id=message[1],
             local_type=message[2],
