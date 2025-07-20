@@ -288,8 +288,8 @@ def create_app(db: DatabaseService, user_info: UserInfo, config: dict) -> FastMC
         processed_msg_list = [
             {
                 "from": (
-                    db.get_contact_by_username(msg[1]).display_name
-                    if db.get_contact_by_username(msg[1])
+                    db.get_contact_by_username(msg[1], False).display_name
+                    if db.get_contact_by_username(msg[1], False)
                     else "未知发件人"
                 ),
                 "text": msg[0],
