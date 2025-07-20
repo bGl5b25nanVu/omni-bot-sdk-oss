@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.0...v1.0.1) (2025-07-20)
+
+
+### Bug Fixes
+
+* refactor import new error. ([d6e351e](https://github.com/weixin-omni/omni-bot-sdk-oss/commit/d6e351eef2c4275a85863dedfe4965c171107b93))
+
 ## [1.0.0](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v0.1.0...v1.0.0) (2025-07-20)
 
 
