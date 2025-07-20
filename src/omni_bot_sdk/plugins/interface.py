@@ -6,8 +6,8 @@
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Protocol
-
+from typing import Any, Dict, List, Optional, Protocol, Tuple, Union
+from pathlib import Path
 from omni_bot_sdk.plugins.core.plugin_interface import (
     Plugin,
     PluginExcuteContext,
@@ -184,108 +184,288 @@ class UserInfo(Protocol):
 class DatabaseService(Protocol):
     """
     数据库服务协议。
-    提供用户信息、联系人、消息等数据库相关操作。
+    定义了与微信数据库交互的接口，包括用户信息、联系人、消息、文件等操作。
     """
 
-    user_info: "UserInfo"  # 当前用户信息
+    user_info: Optional["UserInfo"]  # 当前用户信息, 可能未初始化
 
-    def setup(self):
-        """
-        数据库初始化。
-        """
+    # --- 初始化与核心方法 ---
 
-    def get_db_path_by_username(self, username: str) -> Optional[str]:
+    def setup(self) -> None:
         """
-        根据用户名获取数据库路径。
+        初始化数据库服务。
+        加载所有必要的路径、密钥和初始数据。
+        """
+        ...
+
+    def execute_query(
+        self, db_path: Path, query: str, params: tuple = ()
+    ) -> List[tuple]:
+        """
+        在指定的数据库上执行只读SQL查询。
+
+        Args:
+            db_path (Path): 目标数据库的 Path 对象。
+            query (str): SQL查询语句。
+            params (tuple, optional): 查询参数，默认为空元组。
+        Returns:
+            List[tuple]: 查询结果行列表。
+        """
+        ...
+
+    # --- 路径与数据库信息获取 ---
+
+    def get_db_path_by_username(self, username: str) -> List[Path]:
+        """
+        根据用户名获取其所有相关的消息数据库路径列表。
+        一个用户的消息可能分布在多个数据库文件中。
 
         Args:
             username (str): 用户名。
         Returns:
-            Optional[str]: 数据库路径，如不存在则为None。
+            List[Path]: 数据库路径列表，如不存在则为空列表。
         """
+        ...
 
-    def execute_query(self, db_path: str, query: str, params: tuple = ()) -> list:
+    def get_all_db_files(self) -> List[Path]:
         """
-        执行SQL查询。
+        递归获取数据目录下所有.db数据库文件的路径。
+
+        Returns:
+            List[Path]: 所有数据库文件的路径列表。
+        """
+        ...
+
+    def get_db_tables(self, db_path: Path) -> List[str]:
+        """
+        获取指定数据库中的所有表名。
 
         Args:
-            db_path (str): 数据库路径。
-            query (str): SQL查询语句。
-            params (tuple, optional): 查询参数，默认为空元组。
+            db_path (Path): 目标数据库的 Path 对象。
         Returns:
-            list: 查询结果。
+            List[str]: 表名列表。
         """
+        ...
 
-    def get_contact_by_username(self, username: str):
+    # --- 消息处理 ---
+
+    def check_new_messages(self) -> List[Tuple[str, tuple]]:
+        """
+        遍历消息数据库，检查并返回新消息。
+        通过比对 sqlite_sequence 表的序列号来检测。
+
+        Returns:
+            List[Tuple[str, tuple]]: 新消息列表，每个元素为 (表名, 消息数据元组)。
+        """
+        ...
+
+    def get_message_by_server_id(
+        self, server_id: str, message_db_path: Path, username: str
+    ) -> Optional[tuple]:
+        """
+        通过消息的 server_id 获取特定消息的完整信息。
+
+        Args:
+            server_id (str): 消息的服务器ID。
+            message_db_path (Path): 该消息所在数据库的路径。
+            username (str): 消息所属对话的用户名。
+        Returns:
+            Optional[tuple]: 包含消息所有字段和数据库路径的元组，未找到则返回 None。
+        """
+        ...
+
+    def get_messages_by_username(
+        self, username: str, count: int = 10, order: str = "desc"
+    ) -> List[tuple]:
+        """
+        获取指定用户的最近消息。
+        会自动查找该用户对应的所有消息数据库。
+
+        Args:
+            username (str): 用户名 (wxid)。
+            count (int, optional): 获取消息数量，默认为10。
+            order (str, optional): 排序方式 ('desc' 或 'asc')，默认为 "desc"。
+        Returns:
+            List[tuple]: 消息原始数据元组的列表。
+        """
+        ...
+
+    def query_text_messages(
+        self,
+        username: str,
+        limit: int = 10,
+        start_timestamp: Optional[int] = None,
+        end_timestamp: Optional[int] = None,
+        order: str = "desc",
+        query: Optional[str] = None,
+    ) -> List[tuple]:
+        """
+        高级查询指定用户的文本消息。
+
+        Args:
+            username (str): 用户名 (wxid)。
+            limit (int, optional): 返回消息的最大数量。默认为 10。
+            start_timestamp (Optional[int], optional): 起始时间戳 (秒或毫秒)。默认为 None。
+            end_timestamp (Optional[int], optional): 结束时间戳 (秒或毫秒)。默认为 None。
+            order (str, optional): 排序方式 ('desc' 或 'asc')。默认为 "desc"。
+            query (Optional[str], optional): 要在消息内容中搜索的文本。默认为 None。
+
+        Returns:
+            List[tuple]: 包含 (message_content, sender_username, db_path) 的元组列表。
+        """
+        ...
+
+    # --- 联系人与群聊 ---
+
+    def get_contact_by_username(self, username: str) -> Optional["Contact"]:
         """
         根据用户名获取联系人。
 
         Args:
-            username (str): 用户名。
+            username (str): 用户名 (wxid)。
         Returns:
-            Contact: 联系人对象。
+            Optional[Contact]: 联系人对象，如果未找到则返回 None。
         """
+        ...
 
-    def get_contact_by_display_name(self, display_name: str):
+    def get_contact_by_sender_id(
+        self, sender_id: int, message_db_path: Optional[Path] = None
+    ) -> Optional["Contact"]:
         """
-        根据显示名获取联系人。
+        通过消息中的发送者ID获取联系人信息。
 
         Args:
-            display_name (str): 显示名。
+            sender_id (int): 发送者在消息数据库中的内部ID。
+            message_db_path (Optional[Path], optional): 发送者ID所在的消息数据库路径。如果为None，则遍历所有库。
         Returns:
-            Contact: 联系人对象。
+            Optional[Contact]: 对应的联系人对象，未找到则返回 None。
         """
+        ...
 
-    def get_room_member_list(self, room_user_name: str) -> list:
+    def get_contact_by_display_name(self, display_name: str) -> List["Contact"]:
         """
-        获取群成员列表。
+        根据显示名（昵称、备注等）模糊搜索联系人。
 
         Args:
-            room_user_name (str): 群聊用户名。
+            display_name (str): 用于模糊搜索的显示名。
         Returns:
-            list: 群成员列表。
+            List[Contact]: 匹配的联系人对象列表，可能为空列表。
         """
+        ...
+
+    def get_room_by_md5(self, username_md5: str) -> Optional["Contact"]:
+        """
+        通过群聊username的MD5值反向查询群聊信息。
+
+        Args:
+            username_md5 (str): 群聊username的MD5哈希值。
+        Returns:
+            Optional[Contact]: 对应的群聊联系人对象，未找到则返回 None。
+        """
+        ...
+
+    def get_room_member_list(self, room_user_name: str) -> List["Contact"]:
+        """
+        获取指定群聊的成员列表。
+
+        Args:
+            room_user_name (str): 群聊的用户名 (wxid)。
+        Returns:
+            List[Contact]: 群成员的联系人对象列表。
+        """
+        ...
 
     def get_room_member_count_by_name(self, room_name: str) -> int:
         """
-        获取群成员数量。
+        通过群聊的显示名称（备注或昵称）获取其成员数量。
 
         Args:
-            room_name (str): 群聊名称。
+            room_name (str): 群聊的显示名称。
         Returns:
-            int: 群成员数量。
+            int: 群成员的数量。如果找不到对应的群聊，返回 -1。
         """
+        ...
 
-    def check_member_in_room(self, room_id, member_id) -> bool:
+    def check_member_in_room(self, room_id: int, member_id: int) -> bool:
         """
-        检查成员是否在群中。
+        通过内部ID检查一个联系人是否在某个群聊中。
 
         Args:
-            room_id: 群ID。
-            member_id: 成员ID。
+            room_id (int): 群聊的内部ID (对应 chat_room 表的 id)。
+            member_id (int): 成员的内部ID (对应 contact 表的 id)。
         Returns:
-            bool: 是否在群中。
+            bool: 如果成员在群聊中，返回 True，否则返回 False。
         """
+        ...
 
-    def get_messages_by_username(
-        self, message_db_path: str, username: str, count: int = 10, order: str = "desc"
-    ) -> list:
+    def get_fmessage_list(self) -> List["FMessage"]:
         """
-        获取指定用户的消息。
+        查询并返回好友请求列表。
 
-        Args:
-            message_db_path (str): 消息数据库路径。
-            username (str): 用户名。
-            count (int, optional): 获取消息数量，默认为10。
-            order (str, optional): 排序方式，默认为"desc"。
         Returns:
-            list: 消息列表。
+            List[FMessage]: 好友请求消息对象列表。
         """
+        ...
 
-    def close_all_connections(self):
+    # --- 缓存加载 ---
+
+    def load_chat_rooms(self) -> None:
         """
-        关闭所有数据库连接。
+        从数据库加载所有群聊信息并缓存到内存。
         """
+        ...
+
+    def load_message_username_map(self) -> None:
+        """
+        构建用户名到其所在消息数据库路径的映射缓存。
+        """
+        ...
+
+    # --- 文件与媒体资源获取 ---
+
+    def get_image_by_md5(self, md5: str) -> Optional[tuple]:
+        """从硬链接数据库中通过MD5查找图片信息。"""
+        ...
+
+    def get_video_by_md5(self, md5: str) -> Optional[tuple]:
+        """从硬链接数据库中通过MD5查找视频信息。"""
+        ...
+
+    def get_file_by_md5(self, md5: str) -> Optional[tuple]:
+        """从硬链接数据库中通过MD5查找文件信息。"""
+        ...
+
+    def get_video(self, md5: str, thumb: bool = False) -> Optional[Path]:
+        """获取视频文件的相对路径。"""
+        ...
+
+    def get_image(
+        self,
+        xml_content: str,
+        message: "Message",
+        up_dir: str = "",
+        md5: Optional[str] = None,
+        thumb: bool = False,
+        sender_wxid: str = "",
+    ) -> Path:
+        """获取图片文件的相对路径。"""
+        ...
+
+    def get_image_thumb(self, message: "Message", sender_wxid: str) -> Path:
+        """获取图片缩略图的相对路径。"""
+        ...
+
+    def get_image_by_time(self, message: "Message", sender_wxid: str) -> Path:
+        """通过时间规则推算图片相对路径，并返回最可能存在的那个。"""
+        ...
+
+    def get_file(self, md5: str) -> Optional[Path]:
+        """获取普通文件的相对路径。"""
+        ...
+
+    def get_emoji_url(self, md5: str, thumb: bool = False) -> str:
+        """获取表情包的CDN URL。"""
+        ...
 
 
 class ImageProcessor(Protocol):

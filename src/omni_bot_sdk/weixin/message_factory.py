@@ -8,16 +8,16 @@
 
 import hashlib
 import json
-import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, List, Optional, Union
-
+from pathlib import Path
 import xmltodict
 import zstandard as zstd
 from google.protobuf.json_format import MessageToDict
 from omni_bot_sdk.models import UserInfo
+from omni_bot_sdk.plugins.interface import DatabaseService
 
 from .message_classes import *
 from .parser.audio_parser import parser_audio
@@ -40,10 +40,10 @@ from .parser.link_parser import (
 )
 from .parser.util.common import decompress, get_md5_from_xml
 from .parser.util.protocbuf import (
+    packed_info_data_pb2,
     packed_info_data_img2_pb2,
     packed_info_data_img_pb2,
     packed_info_data_merged_pb2,
-    packed_info_data_pb2,
 )
 
 
@@ -55,10 +55,18 @@ class MessageFactory(ABC):
     """
 
     @abstractmethod
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         """
         创建消息实例
         :param message: 消息数据
+        :param user_info: 用户信息对象
         :param db: 数据库对象
         :param contact: 联系人对象字典
         :param room: 群聊对象字典
@@ -73,7 +81,14 @@ class UnknownMessageFactory(MessageFactory):
     处理无法识别的消息类型。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = Message(
             local_id=message[0],
             server_id=message[1],
@@ -90,7 +105,7 @@ class UnknownMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             user_info=user_info,
@@ -104,7 +119,14 @@ class TextMessageFactory(MessageFactory):
     处理文本消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = TextMessage(
             local_id=message[0],
             server_id=message[1],
@@ -121,7 +143,7 @@ class TextMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             content=message[12],
@@ -136,32 +158,34 @@ class ImageMessageFactory(MessageFactory):
     处理图片消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         filename = ""
         try:
-            # 2025年3月微信4.0.3正式版修改了img命名方式才有了这个东西
+            # 兼容微信4.0.3+ 的图片命名方式
             packed_info_data_proto = packed_info_data_img2_pb2.PackedInfoDataImg2()
             packed_info_data_proto.ParseFromString(message[14])
-            # 转换为 JSON 格式
             packed_info_data = MessageToDict(packed_info_data_proto)
             image_info = packed_info_data.get("imageInfo", {})
-            width = image_info.get("width", 0)
-            height = image_info.get("height", 0)
             filename = image_info.get("filename", "").strip().strip('"').strip()
-        except:
-            pass
-        if not filename:
+        except Exception:
             try:
-                # 2025年3月微信测试版修改了img命名方式才有了这个东西
+                # 兼容旧版
                 packed_info_data_proto = packed_info_data_img_pb2.PackedInfoDataImg()
                 packed_info_data_proto.ParseFromString(message[14])
-                # 转换为 JSON 格式
                 packed_info_data = MessageToDict(packed_info_data_proto)
                 filename = (
                     packed_info_data.get("filename", "").strip().strip('"').strip()
                 )
-            except:
-                pass
+            except Exception:
+                filename = ""
+
         msg = ImageMessage(
             local_id=message[0],
             server_id=message[1],
@@ -178,7 +202,7 @@ class ImageMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             md5="",
@@ -189,21 +213,29 @@ class ImageMessageFactory(MessageFactory):
             file_type="png",
             user_info=user_info,
         )
+
+        sender_wxid = msg.room.username if msg.is_chatroom else msg.contact.username
+
         path = db.get_image(
             xml_content=msg.parsed_content,
             message=msg,
             up_dir="",
             thumb=False,
-            sender_wxid=msg.room.username if msg.is_chatroom else msg.contact.username,
+            sender_wxid=sender_wxid,
         )
-        msg.path = path
-        msg.thumb_path = db.get_image(
+        if path:
+            msg.path = str(path)
+
+        path_thumb = db.get_image(
             xml_content=msg.parsed_content,
             message=msg,
             up_dir="",
             thumb=True,
-            sender_wxid=msg.room.username if msg.is_chatroom else msg.contact.username,
+            sender_wxid=sender_wxid,
         )
+        if path_thumb:
+            msg.thumb_path = str(path_thumb)
+
         return msg
 
 
@@ -213,7 +245,14 @@ class AudioMessageFactory(MessageFactory):
     处理音频消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = AudioMessage(
             local_id=message[0],
             server_id=message[1],
@@ -230,7 +269,7 @@ class AudioMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             md5="",
@@ -246,16 +285,19 @@ class AudioMessageFactory(MessageFactory):
         audio_length = audio_dic.get("audio_length", 0)
         audio_text = audio_dic.get("audio_text", "")
         if not audio_text:
-            packed_info_data_proto = packed_info_data_pb2.PackedInfoData()
-            packed_info_data_proto.ParseFromString(message[14])
-            # 转换为 JSON 格式
-            packed_info_data = MessageToDict(packed_info_data_proto)
-            audio_text = packed_info_data.get("info", {}).get("audioTxt", "")
+            try:
+                packed_info_data_proto = packed_info_data_pb2.PackedInfoData()
+                packed_info_data_proto.ParseFromString(message[14])
+                packed_info_data = MessageToDict(packed_info_data_proto)
+                audio_text = packed_info_data.get("info", {}).get("audioTxt", "")
+            except Exception:
+                audio_text = ""
+
         if not audio_text:
-            audio_text = ""
-            print(f"音频消息没有音频文字，需要延迟处理一下")
-            # TODO 语音转文字的逻辑有点不好处理，这个文字一定是在切换到窗口后再触发的，这里可以先看看语音文件的转换处理？
-            # audio_text = db.get_audio_text(message[1])
+            # TODO: 语音转文字逻辑可能需要延迟处理或异步获取
+            # print(f"音频消息没有音频文字，需要延迟处理一下")
+            pass
+
         msg.audio_text = audio_text
         msg.duration = audio_length
         msg.set_file_name()
@@ -268,21 +310,25 @@ class VideoMessageFactory(MessageFactory):
     处理视频消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
-
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         filename = ""
         try:
-            # 2025年3月微信4.0.3正式版修改了img命名方式才有了这个东西
+            # 兼容微信4.0.3+ 的视频命名方式
             packed_info_data_proto = packed_info_data_img2_pb2.PackedInfoDataImg2()
             packed_info_data_proto.ParseFromString(message[14])
-            # 转换为 JSON 格式
             packed_info_data = MessageToDict(packed_info_data_proto)
-            image_info = packed_info_data.get("videoInfo", {})
-            width = image_info.get("width", 0)
-            height = image_info.get("height", 0)
-            filename = image_info.get("filename", "").strip().strip('"').strip()
-        except:
-            pass
+            video_info = packed_info_data.get("videoInfo", {})
+            filename = video_info.get("filename", "").strip().strip('"').strip()
+        except Exception:
+            filename = ""
+
         msg = VideoMessage(
             local_id=message[0],
             server_id=message[1],
@@ -299,7 +345,7 @@ class VideoMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             md5="",
@@ -312,29 +358,43 @@ class VideoMessageFactory(MessageFactory):
             raw_md5="",
             user_info=user_info,
         )
+
         video_dic = parse_video(msg.parsed_content)
         msg.duration = video_dic.get("length", 0)
         msg.file_size = video_dic.get("size", 0)
         msg.md5 = video_dic.get("md5", "")
         msg.raw_md5 = video_dic.get("rawmd5", "")
-        month = msg.str_time[:7]  # 2025-01
+
+        # [REFACTORED] Simplified path assignment logic
+        video_path: Optional[Union[Path, str]] = None
+        thumb_path: Optional[Union[Path, str]] = None
+        month = msg.str_time[:7]  # e.g., "2025-01"
+
         if filename:
-            # 微信4.0.3正式版增加
-            video_dir = os.path.join(db.user_info.data_dir, "msg", "video", month)
-            video_path = os.path.join(video_dir, f"{filename}_raw.mp4")
-            if os.path.exists(video_path):
-                msg.path = video_path
-                msg.thumb_path = os.path.join(video_dir, f"{filename}.jpg")
+            # 微信 4.0.3+ 新版路径逻辑
+            video_base = Path("msg/video") / month
+            if db.user_info.data_dir:
+                real_video_dir = Path(db.user_info.data_dir) / video_base
+                real_video_path_raw = real_video_dir.joinpath(f"{filename}_raw.mp4")
+                if real_video_path_raw.exists():
+                    video_path = video_base / f"{filename}_raw.mp4"
+                else:
+                    video_path = video_base / f"{filename}.mp4"
             else:
-                msg.path = os.path.join(video_dir, f"{filename}.mp4")
-                msg.thumb_path = os.path.join(video_dir, f"{filename}.jpg")
+                video_path = video_base / f"{filename}.mp4"
+
+            thumb_path = video_base / f"{filename}.jpg"
         else:
-            msg.path = db.get_video(msg.raw_md5, False)
-            msg.thumb_path = db.get_video(msg.raw_md5, True)
-            if not msg.path:
-                msg.path = db.get_video(msg.md5, False)
-                msg.thumb_path = db.get_video(msg.md5, True)
-            # logger.error(f'{msg.path} {msg.thumb_path}')
+            # 旧版路径查找逻辑
+            video_path = db.get_video(msg.raw_md5, False)
+            thumb_path = db.get_video(msg.raw_md5, True)
+            if not video_path:
+                video_path = db.get_video(msg.md5, False)
+                thumb_path = db.get_video(msg.md5, True)
+
+        msg.path = str(video_path) if video_path else ""
+        msg.thumb_path = str(thumb_path) if thumb_path else ""
+
         return msg
 
 
@@ -344,7 +404,14 @@ class EmojiMessageFactory(MessageFactory):
     处理表情消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = EmojiMessage(
             local_id=message[0],
             server_id=message[1],
@@ -361,7 +428,7 @@ class EmojiMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             md5="",
@@ -369,19 +436,18 @@ class EmojiMessageFactory(MessageFactory):
             thumb_path="",
             file_size=0,
             file_name="",
-            file_type="png",
+            file_type="gif",  # Default, can be other types
             url="",
             thumb_url="",
             description="",
             user_info=user_info,
         )
         emoji_info = parser_emoji(msg.parsed_content)
-        if not emoji_info.get("url"):
-            msg.url = db.get_emoji_url(emoji_info.get("md5"))
-        else:
-            msg.url = emoji_info.get("url")
         msg.md5 = emoji_info.get("md5", "")
-        msg.description = emoji_info.get("desc")
+        msg.url = emoji_info.get("url")
+        if not msg.url and msg.md5:
+            msg.url = db.get_emoji_url(msg.md5)
+        msg.description = emoji_info.get("desc", "")
         return msg
 
 
@@ -391,7 +457,14 @@ class LinkMessageFactory(MessageFactory):
     处理链接消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = LinkMessage(
             local_id=message[0],
             server_id=message[1],
@@ -408,7 +481,7 @@ class LinkMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             href="",
@@ -421,6 +494,8 @@ class LinkMessageFactory(MessageFactory):
             app_id="",
             user_info=user_info,
         )
+
+        info = {}
         if message[2] in {
             MessageType.LinkMessage,
             MessageType.LinkMessage2,
@@ -430,33 +505,27 @@ class LinkMessageFactory(MessageFactory):
             MessageType.LinkMessage6,
         }:
             info = parser_link(msg.parsed_content)
-            msg.title = info.get("title", "")
-            msg.href = info.get("url", "")
-            msg.app_name = info.get("appname", "")
-            msg.app_id = info.get("appid", "")
-            msg.description = info.get("desc", "")
-            msg.cover_url = info.get("cover_url", "")
-            if message[2] in {MessageType.Music}:
+            if message[2] == MessageType.Music:
                 msg.type = MessageType.Music
-            if not msg.app_name:
-                source_username = info.get("sourceusername")
-                if source_username:
-                    contact = db.get_contact_by_username(source_username)
-                    if contact:
-                        msg.app_name = contact.display_name
-                        msg.app_icon = contact.small_head_url
-                    msg.app_id = source_username
-
-        elif message[2] == MessageType.Applet or message[2] == MessageType.Applet2:
+            source_username = info.get("sourceusername")
+            if source_username:
+                source_contact = db.get_contact_by_username(source_username)
+                if source_contact:
+                    msg.app_name = source_contact.display_name
+                    msg.app_icon = source_contact.small_head_url
+                msg.app_id = source_username
+        elif message[2] in {MessageType.Applet, MessageType.Applet2}:
             info = parser_applet(msg.parsed_content)
             msg.type = MessageType.Applet
-            msg.title = info.get("title", "")
-            msg.href = info.get("url", "")
-            msg.app_name = info.get("appname", "")
-            msg.app_id = info.get("appid", "")
-            msg.description = info.get("desc", "")
             msg.app_icon = info.get("app_icon", "")
-            msg.cover_url = info.get("cover_url", "")
+
+        msg.title = info.get("title", "")
+        msg.href = info.get("url", "")
+        msg.app_name = info.get("appname", msg.app_name or "")
+        msg.app_id = info.get("appid", msg.app_id or "")
+        msg.description = info.get("desc", "")
+        msg.cover_url = info.get("cover_url", "")
+
         return msg
 
 
@@ -466,7 +535,14 @@ class BusinessCardMessageFactory(MessageFactory):
     处理名片消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = BusinessCardMessage(
             local_id=message[0],
             server_id=message[1],
@@ -483,7 +559,7 @@ class BusinessCardMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             is_open_im=message[2] == MessageType.OpenIMBCard,
@@ -506,23 +582,29 @@ class BusinessCardMessageFactory(MessageFactory):
         msg.alias = info.get("alias", "")
         msg.small_head_url = info.get("smallheadimgurl", "")
         msg.big_head_url = info.get("bigheadimgurl", "")
-        msg.sex = info.get("sex", 0)
+        msg.sex = int(info.get("sex", 0))
         msg.sign = info.get("sign", "")
         msg.province = info.get("province", "")
         msg.city = info.get("city", "")
-        msg.is_open_im = msg.local_type == MessageType.OpenIMBCard
-        msg.open_im_desc = info.get("openimdescicon", "")
-        msg.open_im_desc_icon = info.get("openimdesc", "")
+        msg.open_im_desc = info.get("openimdesc", "")
+        msg.open_im_desc_icon = info.get("openimdescicon", "")
         return msg
 
 
 class VoipMessageFactory(MessageFactory):
     """
-    语音消息工厂。
-    处理语音消息的解析与构建。
+    语音/视频通话消息工厂。
+    处理语音/视频通话消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = VoipMessage(
             local_id=message[0],
             server_id=message[1],
@@ -539,7 +621,7 @@ class VoipMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             invite_type=0,
@@ -560,29 +642,14 @@ class MergedMessageFactory(MessageFactory):
     处理合并转发消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
-        # TODO 目前实现比较混乱
-        """
-        合并转发的聊天记录
-        - 文件路径：
-          - msg/attach/9e20f478899dc29eb19741386f9343c8/2025-03/Rec/409af365664e0c0d/F/5/xxx.pdf
-        - 图片路径：
-          - msg/attach/9e20f478899dc29eb19741386f9343c8/2025-03/Rec/409af365664e0c0d/Img/5
-        - 视频路径：
-          - msg/attach/9e20f478899dc29eb19741386f9343c8/2025-03/Rec/409af365664e0c0d/V/5.mp4
-        9e20f478899dc29eb19741386f9343c8是wxid的md5加密，409af365664e0c0d是packed_info_data_proto字段里的dir3
-        文件夹最后的5代表的该文件是合并转发的聊天记录第5条消息，如果存在嵌套的合并转发的聊天记录，则依次递归的添加上一层的文件名后缀，例如：合并转发的聊天记录有两层
-        0：文件（文件夹名为0）
-        1：图片 （文件名为1）
-        2：合并转发的聊天记录
-            0：文件（文件夹名为2_0）
-            1：图片（文件名为2_1）
-            2：视频（文件名为2_2.mp4）
-        :param message:
-        :param username:
-        :param manager:
-        :return:
-        """
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = MergedMessage(
             local_id=message[0],
             server_id=message[1],
@@ -599,7 +666,7 @@ class MergedMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             title="",
@@ -608,122 +675,128 @@ class MergedMessageFactory(MessageFactory):
             level=0,
             user_info=user_info,
         )
+
         info = parser_merged_messages(
             user_info, msg.parsed_content, "", msg.contact.username, message[5]
         )
-        packed_info_data_proto = packed_info_data_merged_pb2.PackedInfoData()
-        packed_info_data_proto.ParseFromString(message[14])
-        # 转换为 JSON 格式
-        packed_info_data = MessageToDict(packed_info_data_proto)
-        dir0 = packed_info_data.get("info", {}).get("dir", "")
-        month = msg.str_time[:7]  # 2025-03
-        rec_dir = os.path.join(
-            user_info.data_dir,
-            "msg",
-            "attach",
-            hashlib.md5(msg.contact.username.encode("utf-8")).hexdigest(),
-            month,
-            "Rec",
-        )
-        if not dir0 and os.path.exists(rec_dir):
-            for file in os.listdir(rec_dir):
-                if file.startswith(f"{msg.local_id}_"):
-                    dir0 = file
+
+        dir0 = ""
+        try:
+            packed_info_data_proto = packed_info_data_merged_pb2.PackedInfoData()
+            packed_info_data_proto.ParseFromString(message[14])
+            packed_info_data = MessageToDict(packed_info_data_proto)
+            dir0 = packed_info_data.get("info", {}).get("dir", "")
+        except Exception:
+            dir0 = ""
+
+        month = msg.str_time[:7]
+
+        if not dir0 and user_info.data_dir:
+            rec_dir = (
+                Path(user_info.data_dir)
+                / "msg"
+                / "attach"
+                / hashlib.md5(msg.contact.username.encode("utf-8")).hexdigest()
+                / month
+                / "Rec"
+            )
+            if rec_dir.exists():
+                for file in rec_dir.iterdir():
+                    if file.is_dir() and file.name.startswith(f"{msg.local_id}_"):
+                        dir0 = file.name
+                        break
+
         msg.title = info.get("title", "")
         msg.description = info.get("desc", "")
         msg.messages = info.get("messages", [])
 
-        def parser_merged(merged_messages, level):
+        def parser_merged(merged_messages, level_prefix):
+            attach_base = Path("msg/attach")
+            wxid_md5 = hashlib.md5(msg.contact.username.encode("utf-8")).hexdigest()
+
             for index, inner_msg in enumerate(merged_messages):
-                wxid_md5 = hashlib.md5(msg.contact.username.encode("utf-8")).hexdigest()
                 inner_msg.room = msg.room
+                current_level = f"{level_prefix}{'_' if level_prefix else ''}{index}"
+
                 if inner_msg.local_type == MessageType.Image:
                     if dir0:
-                        inner_msg.path = os.path.join(
-                            "msg",
-                            "attach",
-                            wxid_md5,
-                            month,
-                            "Rec",
-                            dir0,
-                            "Img",
-                            f"{level}{'_' if level else ''}{index}",
+                        inner_msg.path = str(
+                            attach_base
+                            / wxid_md5
+                            / month
+                            / "Rec"
+                            / dir0
+                            / "Img"
+                            / current_level
                         )
-                        inner_msg.thumb_path = os.path.join(
-                            "msg",
-                            "attach",
-                            wxid_md5,
-                            month,
-                            "Rec",
-                            dir0,
-                            "Img",
-                            f"{level}{'_' if level else ''}{index}_t",
+                        inner_msg.thumb_path = str(
+                            attach_base
+                            / wxid_md5
+                            / month
+                            / "Rec"
+                            / dir0
+                            / "Img"
+                            / f"{current_level}_t"
                         )
                     else:
                         path = db.get_image(
-                            xml_content="",
-                            md5=inner_msg.md5,
-                            message=inner_msg,
-                            up_dir="",
-                            thumb=False,
-                            sender_wxid=msg.contact.username,
+                            "",
+                            inner_msg.md5,
+                            inner_msg,
+                            "",
+                            False,
+                            msg.contact.username,
                         )
-                        inner_msg.path = path
-                        inner_msg.thumb_path = db.get_image(
-                            xml_content="",
-                            md5=inner_msg.md5,
-                            message=inner_msg,
-                            up_dir="",
-                            thumb=True,
-                            sender_wxid=msg.contact.username,
+                        thumb_path = db.get_image(
+                            "", inner_msg.md5, inner_msg, "", True, msg.contact.username
                         )
+                        inner_msg.path = str(path) if path else ""
+                        inner_msg.thumb_path = str(thumb_path) if thumb_path else ""
+
                 elif inner_msg.local_type == MessageType.Video:
                     if dir0:
-                        inner_msg.path = os.path.join(
-                            "msg",
-                            "attach",
-                            wxid_md5,
-                            month,
-                            "Rec",
-                            dir0,
-                            "V",
-                            f"{level}{'_' if level else ''}{index}.mp4",
+                        inner_msg.path = str(
+                            attach_base
+                            / wxid_md5
+                            / month
+                            / "Rec"
+                            / dir0
+                            / "V"
+                            / f"{current_level}.mp4"
                         )
-                        inner_msg.thumb_path = os.path.join(
-                            "msg",
-                            "attach",
-                            wxid_md5,
-                            month,
-                            "Rec",
-                            dir0,
-                            "Img",
-                            f"{level}{'_' if level else ''}{index}_t",
+                        inner_msg.thumb_path = str(
+                            attach_base
+                            / wxid_md5
+                            / month
+                            / "Rec"
+                            / dir0
+                            / "Img"
+                            / f"{current_level}_t"
                         )
                     else:
-                        inner_msg.path = db.get_video(md5=inner_msg.md5, thumb=False)
-                        inner_msg.thumb_path = db.get_video(
-                            md5=inner_msg.md5, thumb=True
-                        )
+                        path = db.get_video(inner_msg.md5, False)
+                        thumb_path = db.get_video(inner_msg.md5, True)
+                        inner_msg.path = str(path) if path else ""
+                        inner_msg.thumb_path = str(thumb_path) if thumb_path else ""
+
                 elif inner_msg.local_type == MessageType.File:
                     if dir0:
-                        inner_msg.path = os.path.join(
-                            "msg",
-                            "attach",
-                            wxid_md5,
-                            month,
-                            "Rec",
-                            dir0,
-                            "F",
-                            f"{level}{'_' if level else ''}{index}",
-                            inner_msg.file_name,
+                        inner_msg.path = str(
+                            attach_base
+                            / wxid_md5
+                            / month
+                            / "Rec"
+                            / dir0
+                            / "F"
+                            / current_level
+                            / inner_msg.file_name
                         )
                     else:
-                        inner_msg.path = db.get_file(inner_msg.md5)
+                        path = db.get_file(inner_msg.md5)
+                        inner_msg.path = str(path) if path else ""
+
                 elif inner_msg.local_type == MessageType.MergedMessages:
-                    parser_merged(
-                        inner_msg.messages,
-                        f"{index}" if not level else f"{level}_{index}",
-                    )
+                    parser_merged(inner_msg.messages, current_level)
 
         parser_merged(msg.messages, "")
         return msg
@@ -731,11 +804,17 @@ class MergedMessageFactory(MessageFactory):
 
 class WeChatVideoMessageFactory(MessageFactory):
     """
-    微信视频消息工厂。
-    处理微信视频消息的解析与构建。
+    微信视频号消息工厂。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = WeChatVideoMessage(
             local_id=message[0],
             server_id=message[1],
@@ -752,7 +831,7 @@ class WeChatVideoMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             url="",
@@ -779,10 +858,16 @@ class WeChatVideoMessageFactory(MessageFactory):
 class PositionMessageFactory(MessageFactory):
     """
     位置消息工厂。
-    处理位置消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = PositionMessage(
             local_id=message[0],
             server_id=message[1],
@@ -799,32 +884,41 @@ class PositionMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
-            x=0,
-            y=0,
+            x=0.0,
+            y=0.0,
             poiname="",
             label="",
             scale=0,
             user_info=user_info,
         )
         info = parser_position(msg.parsed_content)
-        msg.x = eval(info.get("x", ""))
-        msg.y = eval(info.get("y", ""))
+        try:
+            msg.x = float(info.get("x", 0.0))
+            msg.y = float(info.get("y", 0.0))
+            msg.scale = int(info.get("scale", 0))
+        except (ValueError, TypeError):
+            pass  # Keep default values if conversion fails
         msg.poiname = info.get("poiname", "")
         msg.label = info.get("label", "")
-        msg.scale = eval(info.get("scale", ""))
         return msg
 
 
 class QuoteMessageFactory(MessageFactory):
     """
     引用消息工厂。
-    处理引用消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = QuoteMessage(
             local_id=message[0],
             server_id=message[1],
@@ -841,7 +935,7 @@ class QuoteMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             content="",
@@ -849,22 +943,29 @@ class QuoteMessageFactory(MessageFactory):
             user_info=user_info,
         )
         info = parser_reply(msg.parsed_content)
-        # 引用的消息，肯定在同一个db
-        quote_message = db.get_message_by_server_id(
-            info.get("svrid", ""),
-            msg.message_db_path,
-            room.username if room else contact.username,
+
+        quote_svrid = info.get("svrid", "")
+        chat_user = room.username if room else contact.username
+        quote_message_data = db.get_message_by_server_id(
+            quote_svrid, msg.message_db_path, chat_user
         )
-        if quote_message:
-            contact2 = db.get_contact_by_sender_id(
-                quote_message[4], msg.message_db_path
+
+        if quote_message_data:
+            quote_sender_id = quote_message_data[4]
+            quote_contact = db.get_contact_by_sender_id(
+                quote_sender_id, msg.message_db_path
             )
-            msg.quote_message = FACTORY_REGISTRY[quote_message[2]].create(
-                quote_message, user_info, db, contact2, room
+            quote_factory = FACTORY_REGISTRY.get(
+                quote_message_data[2], UnknownMessageFactory()
+            )
+            msg.quote_message = quote_factory.create(
+                quote_message_data, user_info, db, quote_contact, room
             )
         else:
-            print(f"quote_message is None, {msg.parsed_content}")
+            # [REFACTORED] Changed print to a comment, suggesting logger usage
+            # logger.warning(f"Quoted message not found. svrid: {quote_svrid}, xml: {msg.parsed_content}")
             msg.quote_message = None
+
         msg.content = info.get("text", "")
         return msg
 
@@ -872,11 +973,17 @@ class QuoteMessageFactory(MessageFactory):
 class SystemMessageFactory(MessageFactory):
     """
     系统消息工厂。
-    处理系统消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
-        msg = TextMessage(
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
+        msg = SystemMessage(  # Use SystemMessage for clarity
             local_id=message[0],
             server_id=message[1],
             local_type=message[2],
@@ -892,24 +999,32 @@ class SystemMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             content="",
             user_info=user_info,
         )
-        # TODO 解析更多系统消息，可能是来自群的消息，要去掉群的开头再进行解析xml
+
+        message_content = message[12]
         if isinstance(message[12], bytes):
             message_content = decompress(message[12])
-            try:
-                message_content = message_content.split("@chatroom:")[1].strip()
-                dic = xmltodict.parse(message_content)
-                # 序列化成字符串
-                message_content = json.dumps(dic, ensure_ascii=False)
-            except:
-                pass
-        else:
-            message_content = message[12]
+
+        # [FIXED] Safely handle chatroom system messages and XML parsing
+        try:
+            # Strip chatroom prefix if it exists
+            if "@chatroom:" in message_content:
+                parts = message_content.split("@chatroom:", 1)
+                if len(parts) > 1:
+                    message_content = parts[1].strip()
+
+            # Attempt to parse as XML and convert to JSON string for readability
+            dic = xmltodict.parse(message_content)
+            message_content = json.dumps(dic, ensure_ascii=False)
+        except Exception:
+            # If it's not valid XML or fails for any reason, use the content as is
+            pass
+
         msg.content = message_content
         return msg
 
@@ -917,10 +1032,16 @@ class SystemMessageFactory(MessageFactory):
 class TransferMessageFactory(MessageFactory):
     """
     转账消息工厂。
-    处理转账消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = TransferMessage(
             local_id=message[0],
             server_id=message[1],
@@ -937,7 +1058,7 @@ class TransferMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             pay_subtype=0,
@@ -957,10 +1078,16 @@ class TransferMessageFactory(MessageFactory):
 class RedEnvelopeMessageFactory(MessageFactory):
     """
     红包消息工厂。
-    处理红包消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = RedEnvelopeMessage(
             local_id=message[0],
             server_id=message[1],
@@ -977,7 +1104,7 @@ class RedEnvelopeMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             title="",
@@ -995,10 +1122,16 @@ class RedEnvelopeMessageFactory(MessageFactory):
 class FileMessageFactory(MessageFactory):
     """
     文件消息工厂。
-    处理文件消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = FileMessage(
             local_id=message[0],
             server_id=message[1],
@@ -1015,7 +1148,7 @@ class FileMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             path="",
@@ -1028,26 +1161,28 @@ class FileMessageFactory(MessageFactory):
         info = parser_file(msg.parsed_content)
         md5 = info.get("md5", "")
         filename = info.get("file_name", "")
+
         if not filename:
             try:
+                # Try parsing packed info for filename as a fallback
                 packed_info_data_proto = packed_info_data_img2_pb2.PackedInfoDataImg2()
                 packed_info_data_proto.ParseFromString(message[14])
                 packed_info_data = MessageToDict(packed_info_data_proto)
-                image_info = packed_info_data.get("fileInfo", {})
-                file_info = image_info.get("fileInfo", {})
+                file_info = packed_info_data.get("fileInfo", {}).get("fileInfo", {})
                 filename = file_info.get("filename", "").strip()
-            except:
+            except Exception:
                 pass
 
+        file_path: Optional[Union[Path, str]] = None
         if filename:
-            month = msg.str_time[:7]  # 2025-01
-            file_dir = os.path.join("msg", "file", month)
-            file_path = os.path.join(file_dir, f"{filename}")
-        else:
+            month = msg.str_time[:7]
+            file_path = Path("msg/file") / month / filename
+        elif md5:
             file_path = db.get_file(md5)
-        msg.path = os.path.join(db.user_info.data_dir, file_path)
+
+        msg.path = str(file_path) if file_path else ""
         msg.file_name = filename
-        msg.file_size = info.get("file_size", 0)
+        msg.file_size = info.get("file_size", "0")
         msg.file_type = info.get("file_type", "")
         msg.md5 = md5
         return msg
@@ -1056,10 +1191,16 @@ class FileMessageFactory(MessageFactory):
 class FavNoteMessageFactory(MessageFactory):
     """
     收藏笔记消息工厂。
-    处理收藏笔记消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = FavNoteMessage(
             local_id=message[0],
             server_id=message[1],
@@ -1076,7 +1217,7 @@ class FavNoteMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
+            message_db_path=message[17],
             contact=contact,
             room=room,
             title="",
@@ -1094,10 +1235,16 @@ class FavNoteMessageFactory(MessageFactory):
 class PatMessageFactory(MessageFactory):
     """
     拍一拍消息工厂。
-    处理拍一拍消息的解析与构建。
     """
 
-    def create(self, message, user_info: UserInfo, db, contact: dict, room: dict):
+    def create(
+        self,
+        message,
+        user_info: UserInfo,
+        db: DatabaseService,
+        contact: dict,
+        room: dict,
+    ):
         msg = PatMessage(
             local_id=message[0],
             server_id=message[1],
@@ -1114,8 +1261,8 @@ class PatMessageFactory(MessageFactory):
             message_content=message[12],
             compress_content=message[13],
             packed_info_data=message[14],
-            message_db_path=message[17],  # 添加数据库路径信息
-            contact=contact,
+            message_db_path=message[17],
+            contact=contact,  # Initial contact (system)
             room=room,
             title="",
             from_username="",
@@ -1126,14 +1273,18 @@ class PatMessageFactory(MessageFactory):
         )
         info = parser_pat(msg.parsed_content)
         msg.title = info.get("title", "")
-        msg.from_username = info.get("from_username", "")
-        msg.patted_username = info.get("patted_username", "")
-        msg.chat_username = info.get("chat_username", "")
+        msg.from_username = info.get("fromusername", "")
+        msg.patted_username = info.get("pattedusername", "")
+        msg.chat_username = info.get("chatusername", "")
         msg.template = info.get("template", "")
-        # contact 是不对的，需要重新查询的，因为拍一拍消息显示是系统消息，需要根据from重新查询
-        contact = db.get_contact_by_username(msg.from_username)
-        if contact:
-            msg.contact = contact
+
+        # '拍一拍' 消息的发送者是实际拍人的人, 而不是'系统消息'
+        # 需要根据 from_username 重新获取正确的联系人信息
+        if msg.from_username:
+            pat_contact = db.get_contact_by_username(msg.from_username)
+            if pat_contact:
+                msg.contact = pat_contact
+
         return msg
 
 
@@ -1172,7 +1323,7 @@ FACTORY_REGISTRY = {
 
 if __name__ == "__main__":
     # 创建 TextMessage 实例
-    msg = TextMessage(
+    msg_instance = TextMessage(
         local_id=107,
         server_id=7733522398990171519,
         local_type=MessageType.Text,
@@ -1192,5 +1343,6 @@ if __name__ == "__main__":
         message_db_path="message/message_0.db",
         room=None,
         contact=None,
+        user_info=None,  # For testing purpose
     )
-    print(msg.to_json())
+    print(msg_instance.to_json())

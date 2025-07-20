@@ -5,7 +5,6 @@
 
 import json
 import logging
-import os
 import random
 import struct
 import tempfile
@@ -21,6 +20,7 @@ import win32com.client
 import win32con
 from ruamel.yaml import YAML
 from PIL import Image
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -78,13 +78,11 @@ def get_weixin_path_from_registry():
             winreg.CloseKey(key)
 
             # 验证路径是否存在且是目录
-            if path and os.path.isdir(path):
+            if path and Path(path).is_dir():
                 # 尝试找到微信的可执行文件。 微信的可执行文件名通常是 WeChat.exe 或 Weixin.exe
-                executable_path = os.path.join(
-                    path, "Weixin.exe"
-                )  # 某些版本可能叫 Weixin.exe
-                if os.path.exists(executable_path):
-                    return executable_path
+                executable_path = Path(path) / "Weixin.exe"
+                if executable_path.exists():
+                    return str(executable_path)
                 print("在安装目录下没有找到微信.lnk")
                 return None  # 未找到可执行文件
 
@@ -110,7 +108,7 @@ def launch_wechat_via_shell(program_path: str):
     Args:
         program_path: 要启动的程序的完整路径。
     """
-    if not os.path.exists(program_path):
+    if not Path(program_path).exists():
         print(f"错误: 找不到程序 '{program_path}'。")
         return
 
@@ -306,7 +304,7 @@ def read_temp_image(image_path: str) -> bool:
 
         import win32clipboard
 
-        if not os.path.exists(image_path):
+        if not Path(image_path).exists():
             print(f"图片文件不存在: {image_path}")
             return False
 
@@ -379,12 +377,12 @@ def copy_file_to_clipboard(file_path: str) -> bool:
     """
     将文件路径放入Windows剪贴板，使其可以作为文件被粘贴。
     """
-    if not os.path.exists(file_path):
+    if not Path(file_path).exists():
         logger.error(f"错误：文件不存在于路径 '{file_path}'")
         return False
 
     # 获取文件的绝对路径，确保格式正确
-    abs_path = os.path.abspath(file_path)
+    abs_path = str(Path(file_path).resolve())
 
     # 1. 准备文件路径字节数据
     # Windows API 期望 UTF-16 little endian 编码的路径，并以 '\0' 字节终止。
@@ -490,25 +488,26 @@ async def download_file_if_url(file_path: str) -> str:
                 if match:
                     filename = match.group(1)
         if not filename:
-            filename = os.path.basename(parsed.path) or "downloaded_file"
+            filename = Path(parsed.path).name or "downloaded_file"
 
         # 路径穿越检查
-        if ".." in filename or os.path.isabs(filename):
+        if ".." in filename or Path(filename).is_absolute():
             raise ValueError("文件名非法，存在路径穿越风险")
 
         # 检查危险扩展名
-        ext = os.path.splitext(filename)[1].lower()
+        ext = Path(filename).suffix.lower()
         if ext in DANGEROUS_EXTS:
             raise ValueError(f"禁止下载可执行或危险类型文件: {ext}")
 
-        temp_dir = tempfile.gettempdir()
-        base, ext2 = os.path.splitext(filename)
+        temp_dir = Path(tempfile.gettempdir())
+        base = Path(filename).stem
+        ext2 = Path(filename).suffix
         candidate = filename
         i = 1
-        while os.path.exists(os.path.join(temp_dir, candidate)):
+        while (temp_dir / candidate).exists():
             candidate = f"{base}({i}){ext2}"
             i += 1
-        local_path = os.path.join(temp_dir, candidate)
+        local_path = temp_dir / candidate
 
         # 检查 Content-Length
         content_length = response.headers.get("content-length")
@@ -527,10 +526,10 @@ async def download_file_if_url(file_path: str) -> str:
                     total += len(chunk)
                     if total > MAX_SIZE:
                         f.close()
-                        os.remove(local_path)
+                        Path(local_path).unlink()
                         raise ValueError("文件写入超出200MB限制，已中断并删除")
                     f.write(chunk)
-        return local_path
+        return str(local_path)
 
 
 def ensure_dir_exists(path: str):
@@ -539,5 +538,5 @@ def ensure_dir_exists(path: str):
     Args:
         path (str): 目录路径
     """
-    if not os.path.exists(path):
-        os.makedirs(path)
+    if not Path(path).exists():
+        Path(path).mkdir(parents=True, exist_ok=True)

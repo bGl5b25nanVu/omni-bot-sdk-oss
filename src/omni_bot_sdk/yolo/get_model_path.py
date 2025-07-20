@@ -1,5 +1,5 @@
 import sys
-import os
+from pathlib import Path
 
 
 def get_model_path(model_name):
@@ -8,12 +8,10 @@ def get_model_path(model_name):
     """
     if getattr(sys, "frozen", False):
         # 打包后
-        base_dir = os.path.dirname(sys.executable)
-        model_path = os.path.join(
-            base_dir, "omni_bot_sdk", "yolo", "models", model_name
-        )
+        base_dir = Path(sys.executable).parent
+        model_path = base_dir / "omni_bot_sdk" / "yolo" / "models" / model_name
     else:
         # 源码
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        model_path = os.path.join(base_dir, "models", model_name)
-    return model_path
+        base_dir = Path(__file__).resolve().parent
+        model_path = base_dir / "models" / model_name
+    return str(model_path)

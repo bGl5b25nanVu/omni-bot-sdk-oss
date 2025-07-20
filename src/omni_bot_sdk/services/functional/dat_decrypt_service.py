@@ -6,7 +6,6 @@ DAT 数据解密服务模块。
 import asyncio
 import heapq
 import logging
-import os
 import threading
 import time
 from concurrent.futures import Future as ConcurrentFuture
@@ -46,6 +45,7 @@ async def decrypt_wechat_image_async(
         Optional[str]: 成功后的最终文件完整路径，否则为None。
     """
     try:
+        # 只在需要用Path特性时转为Path
         if not await aiofiles.os.path.exists(image_path):
             logger.warning(f"wxgf文件不存在，无法进行二次解密: {image_path}")
             return None
@@ -71,14 +71,14 @@ async def decrypt_wechat_image_async(
                     elif "image/gif" in content_type:
                         ext = ".gif"
 
-                    final_output_path = output_path_base + ext
-
-                    output_dir = os.path.dirname(final_output_path)
-                    await aiofiles.os.makedirs(output_dir, exist_ok=True)
-                    async with aiofiles.open(final_output_path, "wb") as f:
+                    # 只在这里用Path特性
+                    final_output_path = Path(output_path_base).with_suffix(ext)
+                    output_dir = final_output_path.parent
+                    await aiofiles.os.makedirs(str(output_dir), exist_ok=True)
+                    async with aiofiles.open(str(final_output_path), "wb") as f:
                         await f.write(await response.read())
 
-                    return final_output_path
+                    return str(final_output_path)
                 else:
                     error_text = await response.text()
                     logger.error(
@@ -114,9 +114,9 @@ async def decrypt_wechat_dat_async(
 
         await aiofiles.os.makedirs(temp_dir, exist_ok=True)
 
-        base_name = os.path.splitext(os.path.basename(dat_path))[0]
-        temp_path_decrypted = os.path.join(
-            temp_dir, f".tmp_{base_name}_{int(time.time()*1000)}.dec"
+        base_name = Path(dat_path).stem
+        temp_path_decrypted = str(
+            Path(temp_dir) / f".tmp_{base_name}_{int(time.time()*1000)}.dec"
         )
 
         loop = asyncio.get_running_loop()
@@ -135,6 +135,7 @@ async def decrypt_wechat_dat_async(
                 output_path_base=output_path,
             )
         else:
+            # 只在这里用Path特性
             if header.startswith(b"\xff\xd8\xff"):
                 ext = ".jpg"
             elif header.startswith(b"\x89PNG"):
@@ -147,9 +148,9 @@ async def decrypt_wechat_dat_async(
                 )
                 return None
 
-            final_destination = output_path + ext
-            output_dir = os.path.dirname(final_destination)
-            await aiofiles.os.makedirs(output_dir, exist_ok=True)
+            final_destination = str(Path(output_path).with_suffix(ext))
+            output_dir = Path(final_destination).parent
+            await aiofiles.os.makedirs(str(output_dir), exist_ok=True)
 
             async with (
                 aiofiles.open(temp_path_decrypted, "rb") as src,
@@ -257,8 +258,8 @@ class DatDecryptService:
         """
         if self._init_done:
             return
-        self.watch_dir = os.path.join(self.user_info.data_dir, "msg", "attach")
-        self.temp_dir = os.path.join(self.user_info.data_dir, "temp")
+        self.watch_dir = str(Path(self.user_info.data_dir) / "msg" / "attach")
+        self.temp_dir = str(Path(self.user_info.data_dir) / "temp")
 
         if not self.aes_key or not self.xor_key:
             self.logger.info("正在查找AES和XOR密钥...")
@@ -458,23 +459,21 @@ class DatDecryptService:
         """同步查找最新的n个_t.dat文件。"""
         heap = []
         try:
-            for entry in os.scandir(directory):
-                if entry.is_dir(follow_symlinks=False):
-                    sub_files = self.find_latest_t_dat_files(entry.path, n)
+            for entry in Path(directory).iterdir():
+                if entry.is_dir():
+                    sub_files = self.find_latest_t_dat_files(str(entry), n)
                     for path, mtime in sub_files:
                         if len(heap) < n:
                             heapq.heappush(heap, (mtime, path))
                         else:
                             heapq.heappushpop(heap, (mtime, path))
-                elif entry.is_file(follow_symlinks=False) and entry.name.endswith(
-                    "_t.dat"
-                ):
+                elif entry.is_file() and entry.name.endswith("_t.dat"):
                     try:
                         mtime = entry.stat().st_mtime
                         if len(heap) < n:
-                            heapq.heappush(heap, (mtime, entry.path))
+                            heapq.heappush(heap, (mtime, str(entry)))
                         else:
-                            heapq.heappushpop(heap, (mtime, entry.path))
+                            heapq.heappushpop(heap, (mtime, str(entry)))
                     except FileNotFoundError:
                         continue
         except (FileNotFoundError, PermissionError) as e:
@@ -547,7 +546,7 @@ class DatDecryptService:
                     temp_dir=self.temp_dir,
                 )
                 if result:
-                    filename = os.path.basename(file_path)
+                    filename = Path(file_path).name
                     self._on_decrypt_success(filename, result)
                 else:
                     error = RuntimeError(

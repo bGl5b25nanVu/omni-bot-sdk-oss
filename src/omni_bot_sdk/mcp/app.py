@@ -277,19 +277,14 @@ def create_app(db: DatabaseService, user_info: UserInfo, config: dict) -> FastMC
         if error:
             return error
         db = app_context.db
-        db_path = db.get_db_path_by_username(contact.username)
-        if not db_path:
-            return f"找不到 '{contact.display_name}' 的数据库文件。"
-        username_md5 = hashlib.md5(contact.username.encode()).hexdigest()
-        start = int((start_timestamp or 0) / 1000)
-        end = int((end_timestamp or int(time.time() * 1000)) / 1000)
-        sql = f"""SELECT a.message_content, b.user_name FROM Msg_{username_md5} a 
-                   LEFT JOIN (SELECT ROW_NUMBER() OVER () AS id, user_name FROM Name2Id) b ON a.real_sender_id=b.id  
-                   WHERE a.local_type=1 AND a.create_time BETWEEN {start} AND {end}"""
-        if query:
-            sql += f" AND a.message_content LIKE '%{query}%'"
-        sql += f" ORDER BY a.sort_seq DESC LIMIT {limit}"
-        msg_list = db.execute_query(db_path, sql)
+        msg_list = db.query_text_messages(
+            username=contact.username,
+            query=query,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+            limit=limit,
+        )
+        msg_list.reverse()
         processed_msg_list = [
             {
                 "from": (

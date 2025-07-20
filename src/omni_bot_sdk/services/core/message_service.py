@@ -8,7 +8,7 @@ import threading
 import time
 from queue import Empty, Queue
 from typing import Callable, Optional
-
+from pathlib import Path
 from omni_bot_sdk.services.core.database_service import DatabaseService
 
 
@@ -81,7 +81,9 @@ class MessageService:
                 message = self.db.check_new_messages()
                 if message:
                     for msg in message:
-                        self.logger.info(f"新消息插入队列")
+                        self.logger.info(
+                            f"新消息插入队列，来自于{Path(msg[1][-1]).name} : {msg[0]}"
+                        )
                         self.message_queue.put(msg)
                     self.logger.info(f"消息队列大小: {self.message_queue.qsize()}")
                     # 保存消息到数据库
