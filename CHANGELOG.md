@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.1...v1.0.2) (2025-07-20)
+
+
+### Bug Fixes
+
+* 企业微信添加好友，弹窗不同 ([b47538e](https://github.com/weixin-omni/omni-bot-sdk-oss/commit/b47538e4345c7295476e085be83a4d55ac43f653))
+
 ## [1.0.1](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.0...v1.0.1) (2025-07-20)
 
 
