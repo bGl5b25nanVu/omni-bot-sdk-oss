@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.2...v1.0.3) (2025-07-21)
+
+
+### Bug Fixes
+
+* fix ci/cd error, which caused package bug ([28cce5c](https://github.com/weixin-omni/omni-bot-sdk-oss/commit/28cce5ca2a7f54341f95de53fb7f9cd7108dda40))
+
 ## [1.0.2](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.1...v1.0.2) (2025-07-20)
 
 
