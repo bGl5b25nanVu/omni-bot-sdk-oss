@@ -5,7 +5,8 @@ sys.path.insert(0, os.path.abspath(os.getcwd()))
 
 try:
     from omni_bot_sdk.bot import Bot
-except ImportError:
+except ImportError as e:
+    print(f"ImportError: {e}")
     sys.exit(1)
 
 
