@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.3...v1.0.4) (2025-08-11)
+
+
+### Bug Fixes
+
+* 部分链接解析失败 ([5c98158](https://github.com/weixin-omni/omni-bot-sdk-oss/commit/5c981583ca87044b90a8fff12756e7f548c940dd))
+
 ## [1.0.3](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.2...v1.0.3) (2025-07-21)
 
 
