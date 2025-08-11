@@ -724,6 +724,38 @@ def parser_position(xml_content):
         return result
 
 
+# 正则表达式，用于匹配XML规范中的非法字符
+ILLEGAL_XML_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
+
+# 我们需要保护的核心XML实体
+# 使用不可能出现在普通文本中的占位符
+PROTECTED_ENTITIES_MAP = {
+    "<": "__XML_LT_PLACEHOLDER__",
+    ">": "__XML_GT_PLACEHOLDER__",
+    "&": "__XML_AMP_PLACEHOLDER__",
+}
+# 反向映射，用于恢复
+RESTORE_ENTITIES_MAP = {v: k for k, v in PROTECTED_ENTITIES_MAP.items()}
+
+
+def robust_xml_sanitizer(xml_string: str) -> str:
+    """
+    一个健壮的XML清理器，它能处理非法字符，同时避免破坏已经正确转义的内容。
+    """
+
+    temp_string = xml_string
+    for entity, placeholder in PROTECTED_ENTITIES_MAP.items():
+        temp_string = temp_string.replace(entity, placeholder)
+
+    unescaped_string = html.unescape(temp_string)
+    cleaned_string = ILLEGAL_XML_CHARS_RE.sub("", unescaped_string)
+    final_string = cleaned_string
+    for placeholder, entity in RESTORE_ENTITIES_MAP.items():
+        final_string = final_string.replace(placeholder, entity)
+
+    return final_string
+
+
 def parser_reply(xml_content):
     """
     @param data:
@@ -742,9 +774,14 @@ def parser_reply(xml_content):
             "refermsg_type": -1,
             "refer_text": "引用错误",
         }
-    xml_content = xml_content.replace("&#01;", "").replace("&#20;", "")
+    xml_content = robust_xml_sanitizer(xml_content).replace("&#16;", "")
     try:
-        data = xmltodict.parse(xml_content).get("msg", {}).get("appmsg", {})
+        try:
+            data = xmltodict.parse(xml_content).get("msg", {}).get("appmsg", {})
+        except Exception as e:
+            print(e)
+            print(xml_content)
+            return None
         refermsg_type = int(data.get("refermsg", {}).get("type", "1"))
         title = data.get("title", "")
         displayname = data.get("refermsg", {}).get("displayname", "")
