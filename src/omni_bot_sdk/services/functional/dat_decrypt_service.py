@@ -252,7 +252,7 @@ class DatDecryptService:
             self.aes_key = aes.encode()
             self.xor_key = int(xor)
 
-    def setup(self):
+    def setup_lazy(self):
         """
         同步初始化服务
         """

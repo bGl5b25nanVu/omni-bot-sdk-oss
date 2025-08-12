@@ -11,13 +11,12 @@ import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Union
 from pathlib import Path
 import xmltodict
 import zstandard as zstd
 from google.protobuf.json_format import MessageToDict
 from omni_bot_sdk.models import UserInfo
-from omni_bot_sdk.plugins.interface import DatabaseService
 
 from .message_classes import *
 from .parser.audio_parser import parser_audio
@@ -46,6 +45,9 @@ from .parser.util.protocbuf import (
     packed_info_data_merged_pb2,
 )
 
+if TYPE_CHECKING:
+    from omni_bot_sdk.plugins.interface import DatabaseService
+
 
 # 定义抽象工厂基类
 class MessageFactory(ABC):
@@ -59,7 +61,7 @@ class MessageFactory(ABC):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -85,7 +87,7 @@ class UnknownMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -123,7 +125,7 @@ class TextMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -162,7 +164,7 @@ class ImageMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -249,7 +251,7 @@ class AudioMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -314,7 +316,7 @@ class VideoMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -408,7 +410,7 @@ class EmojiMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -461,7 +463,7 @@ class LinkMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -539,7 +541,7 @@ class BusinessCardMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -601,7 +603,7 @@ class VoipMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -646,7 +648,7 @@ class MergedMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -811,7 +813,7 @@ class WeChatVideoMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -864,7 +866,7 @@ class PositionMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -915,7 +917,7 @@ class QuoteMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -979,7 +981,7 @@ class SystemMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -1038,7 +1040,7 @@ class TransferMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -1084,7 +1086,7 @@ class RedEnvelopeMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -1128,7 +1130,7 @@ class FileMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -1197,7 +1199,7 @@ class FavNoteMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):
@@ -1241,7 +1243,7 @@ class PatMessageFactory(MessageFactory):
         self,
         message,
         user_info: UserInfo,
-        db: DatabaseService,
+        db: "DatabaseService",
         contact: dict,
         room: dict,
     ):

@@ -242,9 +242,32 @@ class Bot:
             if hasattr(component, "start"):
                 self.logger.info(f"Starting service {component.__class__.__name__}...")
                 component.start()
+        if (
+            self.config.get("aes_xor_key") is None
+            or len(self.config.get("aes_xor_key")) == 0
+        ):
+            self.find_image_aes()
+        else:
+            self.dat_decrypt_service.setup_lazy()
         self.is_running = True
         self._notify_status(self.STATUS_RUNNING)
         self.logger.info("--- Bot Setup Complete. All services are running. ---")
+
+    def find_image_aes(self):
+        # 给文件助手发图片
+        self.logger.info("正在发送图片到文件助手...")
+        image_path = self.image_processor.generate_image(
+            text="OMNI-BOT",
+            output_filename="test_image.png",
+        )
+        self.rpa_task_queue.put(
+            SendImageAction(
+                image_path=image_path,
+                target="文件传输助手",
+                is_chatroom=False,
+            )
+        )
+        # self.dat_decrypt_service.setup_lazy()
 
     def teardown(self):
         """
