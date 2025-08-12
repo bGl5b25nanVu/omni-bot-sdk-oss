@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.0.0](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.6...v2.0.0) (2025-08-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* 添加支持的版本说明
+* 支持的微信最低版本调整，不再兼容老版本，最低支持 4.0.6.33
+* 查找图片密钥
+
+### feature
+
+* 查找图片密钥 ([2925db4](https://github.com/weixin-omni/omni-bot-sdk-oss/commit/2925db4819295ea0ac5f87901a244d76d877bb0c))
+* 添加支持的版本说明 ([27bbe29](https://github.com/weixin-omni/omni-bot-sdk-oss/commit/27bbe292aa1ba6a0a36fc5cc085daad3b1d74479))
+
+
+### doc
+
+* 支持的微信最低版本调整，不再兼容老版本，最低支持 4.0.6.33 ([e97088d](https://github.com/weixin-omni/omni-bot-sdk-oss/commit/e97088df7b9a13ab4ad6d38c10a7e216fb14b0d9))
+
 ## [1.0.6](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.5...v1.0.6) (2025-08-12)
 
 
