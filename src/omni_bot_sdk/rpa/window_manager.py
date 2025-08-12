@@ -176,7 +176,7 @@ class WindowManager:
             self.logger.error(f"初始化聊天窗口时出错: {str(e)}")
             return False
 
-    def _init_window_part_size(self):
+    def _init_window_part_size(self) -> bool:
         """
         直接扫描截图像素，分析功能区域
         需要增加 通讯录 和 朋友圈
@@ -208,7 +208,7 @@ class WindowManager:
         breakPoint = []
         # 第一个变化点是 侧边栏和会话列表，第二个变化点是会话列表右侧和聊天详情，每次变化产生两个点
         j = 10
-        for i in range(10, 450):
+        for i in range(10, self.size_config.width * 2 // 3):
             if i == 10:
                 pass
             else:
@@ -262,12 +262,20 @@ class WindowManager:
         # TODO 优化，找到上下边框，再从中点向左右两侧扫描，可以拿到更完整的区域，目前先这样
         search_box_point = [SIDE_BAR_WIDTH + SESSION_LIST_WIDTH // 2, 0]
         breakPoint.clear()
-        for i in range(10, TITLE_BAR_HEIGHT):
+        for i in range(10, TITLE_BAR_HEIGHT - 2):
             if pixels[search_box_point[0], i] != pixels[search_box_point[0], i - 1]:
                 breakPoint.append(i)
                 if len(breakPoint) == 3:
                     break
-        search_box_point[1] = (breakPoint[1] + breakPoint[2]) // 2
+        # 其实可以不搜索了，直接使用快捷键操作就可以了，不过怕被封，还是加一个吧，快捷键和鼠标随机选择一个进行操作
+        # 这里如果没有放大125%，像素可能直接变化，没有渐变，导致只有一次就切了，代码没判断数组长度，偷懒的后果
+        if len(breakPoint) == 2:
+            search_box_point[1] = (breakPoint[0] + breakPoint[1]) // 2
+        elif len(breakPoint) == 3:
+            search_box_point[1] = (breakPoint[1] + breakPoint[2]) // 2
+        else:
+            self.logger.warn("搜索框位置查找失败")
+            return False
         self.logger.info(f"search_btn_bbox: {search_box_point}")
 
         # 计算发送按钮的坐标, 从右下角开始找，而不是左上角，只要斜向找到变色的元素就可以了，注意那个圆角, 第一个元素就是那个发送的右下角，然后查找一下发送按钮的高度和宽度就可以了
