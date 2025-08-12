@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.4...v1.0.5) (2025-08-12)
+
+
+### Bug Fixes
+
+* 在1080P下初始化数组越界 ([aa8cd49](https://github.com/weixin-omni/omni-bot-sdk-oss/commit/aa8cd494042cbb408636d02103b952610aaf41ea))
+
 ## [1.0.4](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.3...v1.0.4) (2025-08-11)
 
 
