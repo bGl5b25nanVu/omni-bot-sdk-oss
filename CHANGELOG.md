@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.6](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.5...v1.0.6) (2025-08-12)
+
+
+### Bug Fixes
+
+* 查找微信进程方法修改 ([521b330](https://github.com/weixin-omni/omni-bot-sdk-oss/commit/521b330e0243db690824e9671de514d52a71f380))
+
 ## [1.0.5](https://github.com/weixin-omni/omni-bot-sdk-oss/compare/v1.0.4...v1.0.5) (2025-08-12)
 
 
