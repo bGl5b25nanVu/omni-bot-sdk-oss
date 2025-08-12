@@ -38,6 +38,9 @@ mqtt:
   username: weixin
 
 plugins:
+  # 图片密钥辅助插件
+  image-aes-plugin:
+    enabled: true
   # 空群屏蔽插件
   block-empty-room-plugin:
     enabled: true
