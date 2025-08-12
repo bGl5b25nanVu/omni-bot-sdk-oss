@@ -33,7 +33,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/支持微信版本-4.0.6.17%20%7C%204.0.19%20%7C%204.0.21-green" alt="支持微信版本: 4.0.6.17 | 4.0.19 | 4.0.21">
+  <img src="https://img.shields.io/badge/支持微信版本-4.0.6.33-green" alt="支持微信版本: 4.0.6.33">
 </p>
 
 > 🤖👁️🖥️ 一个基于视觉识别，运行时零侵入的微信4.0 RPA 框架，构建个微聊天机器人，快速接入LLM,Dify
