@@ -686,6 +686,7 @@ class WindowManager:
                     )
                     # 对搜索框进行OCR，然后查找正确的切换位置，查找规则：
                     # 先查找标签 联系人，群聊，然后对这两个标签的位置进行判断，先取Y小的，然后直接找他附近最近的那个
+                    # 2025-08-14 fix：文件传输助手属于功能类别
                     # 标签和群名字相同的情况下，优先匹配的居然是标签？你他妈煞笔吧
                     # 算了简单点，如果找到了联系人或者群聊，直接下方向键选择？万一网络在前面怎么办？你没得
                     # 如果搜索结果在前，采用倒数选择也有问题啊
@@ -697,7 +698,11 @@ class WindowManager:
                         "runtime_images/search_contact_result.png",
                     )
                     # 对联系人和群聊先找出来，按照Y从小到达排序
-                    labels = [r for r in result if r.get("label") in ["联系人", "群聊"]]
+                    labels = [
+                        r
+                        for r in result
+                        if r.get("label") in ["联系人", "群聊", "功能"]
+                    ]
                     if labels:
                         labels.sort(key=lambda x: x.get("pixel_bbox")[1])
                         center_point = get_center_point(
@@ -722,7 +727,7 @@ class WindowManager:
                             self.last_switch_session_time = time.time()
                             return True
                     else:
-                        self.logger.error("搜索结果中没有联系人或群聊")
+                        self.logger.error("搜索结果中没有联系人或群聊或功能")
                     try:
                         search_window.close()
                     except Exception as e:
