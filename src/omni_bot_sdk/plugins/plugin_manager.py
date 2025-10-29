@@ -118,7 +118,7 @@ class PluginManager:
         for plugin in self.plugins:
             try:
                 await plugin.handle_message(excute_context)
-                self.logger.debug(f"插件 '{plugin.get_plugin_name()}' 处理完成。")
+                self.logger.info(f"插件 '{plugin.get_plugin_name()}' 处理完成。")
                 if excute_context.should_stop:
                     self.logger.info(
                         f"插件 '{plugin.get_plugin_name()}' 停止了消息链的后续处理。"

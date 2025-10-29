@@ -1,9 +1,45 @@
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Dict, List
+from enum import Enum
+from typing import Dict, List, Optional
 
 from omni_bot_sdk.weixin.parser.util.protocbuf.roomdata_pb2 import ChatRoomData
+
+
+class MessageType(Enum):
+    """
+    微信消息类型枚举。
+    定义了常见的微信消息类型。
+    """
+    Text = 1           # 文本消息
+    Image = 3          # 图片消息
+    Voice = 34         # 语音消息
+    Video = 43         # 视频消息
+    MicroVideo = 62    # 小视频
+    EmoticonOld = 47   # 表情消息(旧)
+    Location = 48      # 位置消息
+    Link = 49         # 分享链接
+    File = 49         # 文件消息
+    SysNotice = 10000 # 系统通知
+    WeApp = 570425393 # 小程序
+    Emoticon = 1048625# 表情消息
+
+
+@dataclass
+class Message:
+    """
+    微信消息模型。
+    描述一条完整的微信消息。
+    """
+    type: MessageType           # 消息类型
+    content: str               # 消息内容
+    create_time: int          # 创建时间
+    sender_username: str      # 发送者用户名
+    is_sender: bool           # 是否为发送者
+    room_username: str        # 群聊用户名
+    msg_id: str              # 消息ID
+    svg_path: Optional[str]  # SVG图片路径(表情消息)
 
 
 @dataclass

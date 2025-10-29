@@ -97,6 +97,9 @@ class PluginExcuteContext:
         添加插件处理响应。
         """
         self.responses.append(value)
+        # 如果插件响应要求停止，更新上下文的 should_stop 标志
+        if value.should_stop:
+            self.should_stop = True
 
     def get_responses(self) -> List[PluginExcuteResponse]:
         """

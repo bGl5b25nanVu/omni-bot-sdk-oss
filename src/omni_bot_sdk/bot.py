@@ -2,33 +2,34 @@ import logging
 import queue
 import signal
 import time
-from typing import Any, List, Tuple
+from typing import Any, Callable, List, Optional, Tuple, Type
 import threading
 
-from omni_bot_sdk.common.queues import message_queue, rpa_task_queue
+from .common.queues import message_queue, rpa_task_queue
 
 # 导入所有将被实例化的核心组件类
-from omni_bot_sdk.common.config import Config
-from omni_bot_sdk.mcp.app import create_app
-from omni_bot_sdk.models import UserInfo
-from omni_bot_sdk.plugins.plugin_manager import PluginManager
-from omni_bot_sdk.rpa.action_handlers import SendImageAction
-from omni_bot_sdk.rpa.controller import RPAController
-from omni_bot_sdk.rpa.image_processor import ImageProcessor
-from omni_bot_sdk.rpa.ocr_processor import OCRProcessor
-from omni_bot_sdk.rpa.window_manager import WindowManager
-from omni_bot_sdk.services.core.database_service import DatabaseService
-from omni_bot_sdk.services.core.message_factory_service import MessageFactoryService
-from omni_bot_sdk.services.core.message_service import MessageService
-from omni_bot_sdk.services.core.mqtt_service import MQTTService
-from omni_bot_sdk.services.core.processor_service import ProcessorService
-from omni_bot_sdk.services.core.rpa_service import RPAService
-from omni_bot_sdk.services.core.user_service import UserService
-from omni_bot_sdk.services.functional.dat_decrypt_service import DatDecryptService
-from omni_bot_sdk.services import NewFriendCheckService
-from omni_bot_sdk.services.functional.weixin_status_service import WeixinStatusService
-from omni_bot_sdk.utils.logging_setup import setup_logging
-from omni_bot_sdk.utils.helpers import ensure_dir_exists
+from .common.config import Config
+from .mcp.app import create_app
+from .models import UserInfo
+from .plugins.plugin_manager import PluginManager
+from .rpa.action_handlers import SendImageAction
+from .rpa.controller import RPAController
+from .rpa.image_processor import ImageProcessor
+from .rpa.ocr_processor import OCRProcessor
+from .rpa.window_manager import WindowManager
+from .services.core.database_service import DatabaseService
+from .services.core.message_factory_service import MessageFactoryService
+from .services.functional.message_query_service import MessageQueryService
+from .services.core.message_service import MessageService
+from .services.core.mqtt_service import MQTTService
+from .services.core.processor_service import ProcessorService
+from .services.core.rpa_service import RPAService
+from .services.core.user_service import UserService
+from .services.functional.dat_decrypt_service import DatDecryptService
+from .services import NewFriendCheckService
+from .services.functional.weixin_status_service import WeixinStatusService
+from .utils.logging_setup import setup_logging
+from .utils.helpers import ensure_dir_exists
 
 
 class Bot:
@@ -37,6 +38,15 @@ class Bot:
     负责生命周期管理、组件初始化、插件上下文注入等。
     不直接处理业务逻辑，而是为插件和服务提供统一的运行支撑。
     """
+    _current_instance = None
+
+    @classmethod
+    def get_current_instance(cls):
+        return cls._current_instance
+
+    @classmethod
+    def set_current_instance(cls, instance):
+        cls._current_instance = instance
 
     STATUS_STARTING = "starting"  # 启动中
     STATUS_RUNNING = "running"  # 运行中
@@ -59,11 +69,46 @@ class Bot:
         self.logger.warn(
             "图片AES key需要在微信启动后一小段时间内才能获取，如果无法获取请重新启动微信后重试"
         )
+        Bot.set_current_instance(self)
 
         self.is_running = False
         self.is_paused = False  # 标记是否处于暂停状态
         self._status = None  # 当前状态
         self._status_callbacks = []  # 状态变更回调列表
+        self._components: List[Any] = []  # 初始化组件列表
+        self.message_queue = message_queue
+        self.rpa_task_queue = rpa_task_queue
+
+        # 初始化所有组件，注意顺序
+        self.image_processor = self._create_image_processor()
+        self.ocr_processor = self._create_ocr_processor()
+        self.window_manager = self._create_window_manager()
+        # 用户服务与用户信息初始化
+        self.user_service = UserService(self.config.get("dbkey"))
+        self.user_info = self.user_service.get_user_info()
+        allow_versions = ["4.0.6.33"]
+        if self.user_info.version not in allow_versions:
+            self.logger.error(
+                f"当前微信版本不在支持范围内,目前支持的版本包括：{','.join(allow_versions)}"
+            )
+            self.logger.info("您可以前往：https://github.com/cscnk52/wechat-windows-versions/releases 下载历史版本微信")
+            exit(1)
+
+        self.db = DatabaseService(self.user_service)
+        self.rpa_controller = self._create_rpa_controller()
+        self.plugin_manager = PluginManager(self)
+        all_services = self._create_services()
+        
+        # 统一收集所有需生命周期管理的组件
+        self._components.extend([
+            self.user_service,
+            self.db,
+            self.image_processor,
+            self.ocr_processor,
+            self.window_manager,
+            self.plugin_manager,
+            *all_services,
+        ])
 
         # 用户服务与用户信息初始化
         self.user_service: UserService = UserService(self.config.get("dbkey"))
@@ -75,6 +120,27 @@ class Bot:
             )
             self.logger.info("您可以前往：https://github.com/cscnk52/wechat-windows-versions/releases 下载历史版本微信")
             exit(1)
+
+    def get_service(self, service_type) -> Optional[Any]:
+        """
+        获取指定类型的服务实例。
+
+        Args:
+            service_type: 服务类的类型或服务类名的字符串
+
+        Returns:
+            Optional[Any]: 服务实例，如果未找到则返回None
+        """
+        for component in self._components:
+            if isinstance(service_type, str):
+                # 如果是字符串，比较类名
+                if component.__class__.__name__ == service_type:
+                    return component
+            else:
+                # 如果是类型，使用isinstance
+                if isinstance(component, service_type):
+                    return component
+        return None
         # 数据库服务初始化（需最先初始化）
         self.db: DatabaseService = DatabaseService(self.user_service)
         # RPA相关组件初始化
@@ -172,6 +238,7 @@ class Bot:
             )
         dat_decrypt_service = DatDecryptService(self.user_info, self.config)
         new_friend_check_service = NewFriendCheckService(self.rpa_task_queue, self.db)
+        message_query_service = MessageQueryService(self.user_info, self.db)
 
         services_list = [
             weixin_status_service,
@@ -181,6 +248,7 @@ class Bot:
             rpa_service,
             dat_decrypt_service,
             new_friend_check_service,
+            message_query_service,
         ]
         if mqtt_service:
             services_list.append(mqtt_service)
@@ -303,7 +371,7 @@ class Bot:
                         f"Error closing {component.__class__.__name__}: {e}",
                         exc_info=True,
                     )
-        if self.mcp_app:
+        if hasattr(self, 'mcp_app') and self.mcp_app:
             pass
             # self.mcp_app.stop()
         self.is_running = False
