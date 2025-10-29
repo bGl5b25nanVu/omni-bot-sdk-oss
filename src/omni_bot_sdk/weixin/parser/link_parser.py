@@ -12,6 +12,7 @@ import html
 import re
 import traceback
 import xml.etree.ElementTree as ET
+import xml.parsers.expat
 from datetime import datetime, timedelta
 from typing import List
 
@@ -660,31 +661,60 @@ def parser_wechat_video(xml_content):
         "cover": "",  # 封面url
         "duration": 0,
     }
-    xml_content = xml_content.strip()
+    if not xml_content:
+        print("Empty XML content received")
+        return result
+        
+    # Clean and sanitize XML content
     try:
+        xml_content = xml_content.strip()
+        xml_content = robust_xml_sanitizer(xml_content)
+    except Exception as e:
+        print(f"XML sanitization failed: {str(e)}")
+        return result
+        
+    try:
+        # Try parsing XML with detailed error handling
+        try:
+            parsed_xml = xmltodict.parse(xml_content)
+        except xml.parsers.expat.ExpatError as xe:
+            print(f"XML parsing error: {str(xe)}")
+            print(f"Problematic XML content: {xml_content[:200]}...")  # Log first 200 chars
+            return result
+        except Exception as e:
+            print(f"Unexpected XML parsing error: {str(e)}")
+            print(f"XML content type: {type(xml_content)}")
+            return result
+
+        # Safely navigate the parsed structure
         dic_data = (
-            xmltodict.parse(xml_content)
-            .get("msg", {})
+            parsed_xml.get("msg", {})
             .get("appmsg", {})
             .get("finderFeed", {})
         )
+        
+        # Extract data with safe fallbacks
         sourcedisplayname = dic_data.get("nickname", "")
         weappiconurl = dic_data.get("avatar", "")
         authIconUrl = dic_data.get("authIconUrl", "")
         title = dic_data.get("desc", "")
         media_count = dic_data.get("mediaCount", "0")
+        
+        # Handle media list parsing
+        cover = ""
+        duration = 0
+        media_list = dic_data.get("mediaList", {})
+        
         if media_count > "1":
-            cover = (
-                dic_data.get("mediaList", {}).get("media", [])[0].get("thumbUrl", "")
-            )
-            duration = 0
+            media_array = media_list.get("media", [])
+            if media_array and isinstance(media_array, list):
+                cover = media_array[0].get("thumbUrl", "")
         else:
-            cover = dic_data.get("mediaList", {}).get("media", {}).get("coverUrl", "")
-            duration = (
-                dic_data.get("mediaList", {})
-                .get("media", {})
-                .get("videoPlayDuration", 0)
-            )
+            media_item = media_list.get("media", {})
+            if isinstance(media_item, dict):
+                cover = media_item.get("coverUrl", "")
+                duration = media_item.get("videoPlayDuration", 0)
+
         result = {
             "title": title,
             "url": "",
@@ -694,8 +724,9 @@ def parser_wechat_video(xml_content):
             "authIconUrl": authIconUrl,
             "duration": duration,
         }
-    except:
-        print(traceback.format_exc())
+    except Exception as e:
+        print(f"Error parsing WeChat video data: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
     finally:
         return result
 

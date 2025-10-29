@@ -32,6 +32,8 @@ def setup_logging(log_dir: str = "logs", log_level: int = logging.INFO):
     # 创建彩色控制台处理器
     console_handler = colorlog.StreamHandler()
     console_handler.setLevel(log_level)
+    # Force UTF-8 encoding for console output
+    console_handler.stream.reconfigure(encoding='utf-8')
 
     # 彩色日志格式，增加毫秒
     console_formatter = colorlog.ColoredFormatter(
@@ -50,7 +52,8 @@ def setup_logging(log_dir: str = "logs", log_level: int = logging.INFO):
 
     # 创建文件处理器
     file_handler = RotatingFileHandler(
-        log_path / "app.log", maxBytes=10 * 1024 * 1024, backupCount=5  # 10MB
+        log_path / "app.log", maxBytes=10 * 1024 * 1024, backupCount=5,  # 10MB
+        encoding='utf-8'
     )
     file_handler.setLevel(log_level)
     # 文件日志格式（使用模块名和行号）

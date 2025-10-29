@@ -944,7 +944,11 @@ class QuoteMessageFactory(MessageFactory):
             quote_message=None,
             user_info=user_info,
         )
-        info = parser_reply(msg.parsed_content)
+        # parser_reply may return None on malformed/empty content — guard against that
+        info = parser_reply(msg.parsed_content) or {}
+        if not isinstance(info, dict):
+            # Ensure we have a dict-like object to call .get on
+            info = {}
 
         quote_svrid = info.get("svrid", "")
         chat_user = room.username if room else contact.username
